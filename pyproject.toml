@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amlog"
+version = "0.1.0"
+description = "Foundation for an AML alert optimization and model governance platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["scikit-learn>=1.5,<1.8"]
+
+[project.optional-dependencies]
+database = ["psycopg[binary]>=3.2,<4"]
+dev = ["pytest>=8.3,<9"]
+
+[project.scripts]
+amlog-migrate = "amlog.db.migrate:main"
+amlog-ingest-demo = "amlog.ingest.demo:main"
+amlog-workload = "amlog.workload.load:main"
+amlog-monitor = "amlog.monitor.run:main"
+amlog-features = "amlog.features.run:main"
+amlog-review = "amlog.review.serve:main"
+amlog-prioritize = "amlog.prioritize.run:main"
+amlog-supervised = "amlog.prioritize.supervised_run:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
