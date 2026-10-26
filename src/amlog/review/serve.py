@@ -35,9 +35,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     url = replace_database(settings.database_url, args.database)
     server = ReviewServer(("127.0.0.1", args.port), url)
-    print(f"Review page: http://127.0.0.1:{args.port}/")
-    print(f"Database: {args.database}")
-    print("This page records human review. It does not train a model.")
+    print(f"Review page: http://127.0.0.1:{args.port}/", flush=True)
+    print(f"SynthAML research benchmark: http://127.0.0.1:{args.port}/synthaml", flush=True)
+    print(f"Database: {args.database}", flush=True)
+    print("The investigator queue records human review. The research view is read-only and does not train a model.", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -23,6 +23,10 @@ amlog-features = "amlog.features.run:main"
 amlog-review = "amlog.review.serve:main"
 amlog-prioritize = "amlog.prioritize.run:main"
 amlog-supervised = "amlog.prioritize.supervised_run:main"
+amlog-evaluate = "amlog.evaluate.run:main"
+amlog-benchmark = "amlog.benchmark.run:main"
+amlog-synthaml = "amlog.synthaml.run:main"
+amlog-synthaml-select = "amlog.synthaml.select_run:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

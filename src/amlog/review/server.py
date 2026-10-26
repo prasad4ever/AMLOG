@@ -8,10 +8,12 @@ these same pages.
 from __future__ import annotations
 
 import html
+import json
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 from uuid import UUID
@@ -32,8 +34,13 @@ from amlog.review.service import (
     record_assessment,
     reopen_case,
 )
+from amlog.synthaml.errors import SynthamlError
+from amlog.synthaml.exhibit import ResearchExhibit, load_exhibit
+from amlog.synthaml.run import default_artifact_dir
 
 PAGE_SIZE = 40
+_RESEARCH_ARTIFACT = "synthaml-phase11-evaluation.json"
+_SELECTION_ARTIFACT = "synthaml-phase11c-selection.json"
 
 
 class ReviewServer(ThreadingHTTPServer):
@@ -48,10 +55,13 @@ class ReviewHandler(BaseHTTPRequestHandler):
     server: ReviewServer
 
     def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/synthaml":
+            self._send_html(_render_synthaml())
+            return
         connection = None
         try:
             connection = self._connect()
-            parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
             if parsed.path == "/":
                 self._send_html(_render_list(connection, query))
@@ -74,6 +84,9 @@ class ReviewHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         raw = ""
         try:
+            if urlparse(self.path).path == "/synthaml":
+                self._send_html("<p>The SynthAML research benchmark is read-only.</p>", status=405)
+                return
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length).decode("utf-8")
             form = parse_qs(raw)
@@ -168,6 +181,9 @@ def _render_list(connection, query: dict[str, list[str]]) -> str:
     supervised = assess_supervised_readiness(connection)
     body = [
         "<h1>Alert review</h1>",
+        "<p><strong>Investigator queue.</strong> These rows are the AMLOG workload alerts. "
+        "The <a href='/synthaml'>SynthAML Research Benchmark</a> is a separate read-only page. "
+        "Its research outcomes are not in this queue and are not training labels.</p>",
         "<p>Open an alert to record a human review. Nothing on this list has an outcome until a reviewer saves one.</p>",
         "<p>An anomaly rank is an experimental ordering of alerts. It is not a probability of financial crime, a productive investigation, or a false positive.</p>",
         "<p>"
@@ -214,6 +230,227 @@ def _render_list(connection, query: dict[str, list[str]]) -> str:
         body.append(f"<a href='/?{_query(rule, state, page + 1, sort)}'>Next</a>")
     body.append(f"<p>Showing {len(rows)} of {total}.</p>")
     return "".join(body)
+
+
+def _render_synthaml(path: Path | None = None) -> str:
+    """Read-only research page. It does not query or write the review database."""
+
+    artifact = path if path is not None else default_artifact_dir() / _RESEARCH_ARTIFACT
+    try:
+        exhibit = load_exhibit(artifact)
+    except (SynthamlError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return (
+            "<p><a href='/'>Back to the investigator queue</a></p>"
+            "<h1>SynthAML Research Benchmark</h1>"
+            "<p>The saved evaluation artifact could not be read. This page does not fit a model.</p>"
+            + _research_boundary()
+        )
+    if exhibit is None:
+        return (
+            "<p><a href='/'>Back to the investigator queue</a></p>"
+            "<h1>SynthAML Research Benchmark</h1>"
+            "<p>The completed evaluation artifact is not on this machine. "
+            "This page does not fit a model and does not invent benchmark rows.</p>"
+            + _research_boundary()
+        )
+    selection = _load_selection(artifact.parent / _SELECTION_ARTIFACT)
+    return _research_body(exhibit, selection)
+
+
+def _research_boundary() -> str:
+    return (
+        "<h2>Limitations</h2>"
+        "<ul>"
+        "<li>The data are synthetic research alerts from the published SynthAML extract, not a financial institution's queue.</li>"
+        "<li>Published alert dates are reliable to the quarter. Within a quarter, the date was randomized.</li>"
+        "<li>The synthesizer was fit on the full extract, including alerts later held out by date, so synthesis-related leakage remains.</li>"
+        "<li>The published tables have no account or customer identifier.</li>"
+        "<li>This page shows no verified real-world productivity improvement.</li>"
+        "<li>Report and Dismiss stay in the research artifact. They are not written to investigator labels, "
+        "and they do not open the operational supervised-training gate.</li>"
+        "</ul>"
+    )
+
+
+def _load_selection(path: Path) -> dict[str, Any] | None:
+    """Read the Phase 11C comparison when it is present. A missing file leaves the baseline page."""
+
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {"unreadable": True}
+    if not isinstance(document, dict) or document.get("experiment_id") != "phase11c-synthaml-v1":
+        return {"unreadable": True}
+    return document
+
+
+def _selection_section(selection: dict[str, Any] | None) -> str:
+    """Show the locked candidate beside the logistic baseline. This does not fit a model."""
+
+    if not selection:
+        return ""
+    if selection.get("unreadable"):
+        return (
+            "<h2>Model selection</h2>"
+            "<p>The saved model-selection artifact could not be read. "
+            "The logistic regression baseline below is unchanged.</p>"
+        )
+    parts = [
+        "<h2>Selected experimental model</h2>",
+        "<p>The candidate below was locked from 2020 forward-quarter validation. "
+        "The logistic regression section further down is the Phase 11 baseline, "
+        "kept so the two results stay distinct. Neither model is approved for operational use.</p>",
+        f"<p>{_h(selection.get('holdout_disclosure', ''))}</p>",
+        "<ul>",
+        f"<li>Selected candidate: {_h(selection.get('selected_candidate'))}</li>",
+        f"<li>Primary metric: {_h(selection.get('primary_metric'))}</li>",
+        f"<li>{_h(selection.get('selection_reason'))}</li>",
+        "</ul>",
+        "<h2>2020 validation comparison</h2>",
+        "<table><thead><tr><th>Candidate</th><th>Reports at 10 percent</th>"
+        "<th>Precision at 10 percent, standard deviation</th>"
+        "<th>Mean PR-AUC</th></tr></thead><tbody>",
+    ]
+    for row in selection.get("validation_totals") or []:
+        parts.append(
+            "<tr>"
+            f"<td>{_h(row.get('candidate'))}</td>"
+            f"<td>{_n(int(row.get('reports_at_10', 0)))}</td>"
+            f"<td>{float(row.get('precision_at_10_std', 0.0)):.6f}</td>"
+            f"<td>{float(row.get('average_precision_mean', 0.0)):.6f}</td>"
+            "</tr>"
+        )
+    date_total = sum(int(row.get("reports_at_10", 0)) for row in selection.get("date_order_validation") or [])
+    parts.append(
+        f"<tr><td>date_order</td><td>{_n(date_total)}</td><td></td><td></td></tr>"
+        "</tbody></table>"
+        "<h2>2021 comparison after the choice was locked</h2>"
+        "<table><thead><tr><th>Candidate</th><th>Reports at 5 percent</th>"
+        "<th>Reports at 10 percent</th><th>Reports at 20 percent</th>"
+        "<th>Precision at 10 percent</th><th>Recall at 10 percent</th>"
+        "<th>PR-AUC</th></tr></thead><tbody>"
+    )
+    for row in selection.get("holdout_2021") or []:
+        label = str(row.get("candidate"))
+        if row.get("selected"):
+            label = f"{label} (selected)"
+        parts.append(
+            "<tr>"
+            f"<td>{_h(label)}</td>"
+            f"<td>{_n(int(row.get('reports_at_5', 0)))}</td>"
+            f"<td>{_n(int(row.get('reports_at_10', 0)))}</td>"
+            f"<td>{_n(int(row.get('reports_at_20', 0)))}</td>"
+            f"<td>{float(row.get('precision_at_10', 0.0)):.6f}</td>"
+            f"<td>{float(row.get('recall_at_10', 0.0)):.6f}</td>"
+            f"<td>{float(row.get('average_precision', 0.0)):.6f}</td>"
+            "</tr>"
+        )
+    parts.append("</tbody></table>")
+    sample = selection.get("selected_sample") or []
+    if sample:
+        parts.append(
+            "<h2>Highest saved ranks of the selected model</h2>"
+            "<p>These are the first 2021 alerts in the selected order. "
+            "The outcome is the published research label.</p>"
+            "<table><thead><tr><th>Rank</th><th>AlertID</th><th>Score</th>"
+            "<th>Published research outcome</th></tr></thead><tbody>"
+        )
+        for row in sample:
+            parts.append(
+                "<tr>"
+                f"<td>{_n(int(row.get('rank', 0)))}</td>"
+                f"<td>{_n(int(row.get('alert_id', 0)))}</td>"
+                f"<td>{float(row.get('score', 0.0)):.6f}</td>"
+                f"<td>{_h(row.get('outcome'))}</td>"
+                "</tr>"
+            )
+        parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+def _research_body(exhibit: ResearchExhibit, selection: dict[str, Any] | None = None) -> str:
+    model_heading = "Logistic regression baseline" if selection else "Model"
+    parts = [
+        "<p><a href='/'>Back to the investigator queue</a></p>",
+        "<h1>SynthAML Research Benchmark</h1>",
+        "<p>This read-only view shows the completed supervised ranking of published research alerts. "
+        "It is not the investigator queue. The business objective is to see whether a supervised model "
+        "identifies more report-worthy alerts than unprioritized date order when both review the same number of alerts.</p>",
+        _research_boundary(),
+        _selection_section(selection),
+        "<h2>Population</h2>",
+        "<ul>"
+        f"<li>Published research alerts: {_n(exhibit.alerts)}</li>"
+        f"<li>Training alerts, 2020: {_n(exhibit.train_alerts)} "
+        f"({_n(exhibit.train_reports)} Report, {_n(exhibit.train_dismissals)} Dismiss)</li>"
+        f"<li>Held-out alerts, 2021: {_n(exhibit.test_alerts)} "
+        f"({_n(exhibit.test_reports)} Report, {_n(exhibit.test_dismissals)} Dismiss)</li>"
+        f"<li>Report outcomes: {_n(exhibit.reports)}. Dismiss outcomes: {_n(exhibit.dismissals)}.</li>"
+        "</ul>",
+        f"<h2>{model_heading}</h2>",
+        "<ul>"
+        f"<li>Experiment {_h(exhibit.experiment_id)}</li>"
+        f"<li>Model {_h(exhibit.model_name)} version {_h(exhibit.model_version)}, "
+        f"{_h(exhibit.algorithm_family)}</li>"
+        f"<li>scikit-learn {_h(exhibit.sklearn_version)}, seed {_h(exhibit.random_state)}, "
+        f"iterations {_h(exhibit.n_iter)}, converged: {'yes' if exhibit.converged else 'no'}</li>"
+        f"<li>{_h(exhibit.score_semantics)}</li>"
+        "</ul>",
+        "<h2>Date order and supervised ranking</h2>",
+        "<p>Both policies review the same held-out alerts. Capacity was fixed at 5, 10, and 20 percent before scoring. "
+        "Date order uses the published date, then AlertID. The supervised order uses the saved Report score.</p>",
+        "<table><thead><tr>"
+        "<th>Capacity</th><th>Reviewed</th><th>Date-order reports</th><th>Supervised reports</th>"
+        "<th>Date-order precision</th><th>Supervised precision</th>"
+        "<th>Date-order recall</th><th>Supervised recall</th>"
+        "<th>Report outcomes remaining, date order</th>"
+        "<th>Report outcomes remaining, supervised</th>"
+        "</tr></thead><tbody>",
+    ]
+    for item in exhibit.comparisons:
+        parts.append(
+            "<tr>"
+            f"<td>{item.percent}%</td>"
+            f"<td>{_n(item.alerts_reviewed)}</td>"
+            f"<td>{_n(item.date_reports)}</td>"
+            f"<td>{_n(item.supervised_reports)}</td>"
+            f"<td>{item.date_precision:.6f}</td>"
+            f"<td>{item.supervised_precision:.6f}</td>"
+            f"<td>{item.date_recall:.6f}</td>"
+            f"<td>{item.supervised_recall:.6f}</td>"
+            f"<td>{_n(item.date_remaining)}</td>"
+            f"<td>{_n(item.supervised_remaining)}</td>"
+            "</tr>"
+        )
+    parts.append("</tbody></table>")
+    parts.append("<h2>Highest saved held-out ranks</h2>")
+    if not exhibit.sample:
+        parts.append("<p>The artifact has no held-out score rows. None were invented.</p>")
+    else:
+        parts.append(
+            "<p>These rows are the first held-out alerts in the saved supervised order. "
+            "The outcome is the published research label. It is not an investigator finding.</p>"
+            "<table><thead><tr><th>Rank</th><th>AlertID</th><th>Predicted Report score</th>"
+            "<th>Published research outcome</th></tr></thead><tbody>"
+        )
+        for row in exhibit.sample:
+            parts.append(
+                "<tr>"
+                f"<td>{_n(row.model_position)}</td>"
+                f"<td>{_n(row.alert_id)}</td>"
+                f"<td>{row.score:.6f}</td>"
+                f"<td>{_h(row.outcome)}</td>"
+                "</tr>"
+            )
+        parts.append("</tbody></table>")
+    if exhibit.limitations:
+        parts.append("<h2>Recorded experiment limitations</h2><ul>")
+        for item in exhibit.limitations:
+            parts.append(f"<li>{_h(item)}</li>")
+        parts.append("</ul>")
+    return "".join(parts)
 
 
 def _render_detail(detail: AlertDetail, error: str) -> str:
@@ -426,8 +663,8 @@ def _direction_totals(detail: AlertDetail) -> str:
 def _page(body: str) -> str:
     return (
         "<!DOCTYPE html><html><head><meta charset='utf-8'><title>AMLOG review</title>"
-        "<style>body{font-family:sans-serif;margin:1.5rem;max-width:60rem}"
-        "table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ccc;text-align:left;padding:.3rem}"
+        "<style>body{font-family:sans-serif;margin:1.5rem;max-width:76rem;background:#fff;color:#111}"
+        "a{color:#0645ad}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ccc;text-align:left;padding:.3rem;color:#111}"
         "textarea{width:100%;min-height:4rem}</style></head><body>"
         f"{body}</body></html>"
     )
@@ -459,3 +696,7 @@ def _uuid(value: str) -> UUID:
 
 def _h(value: object) -> str:
     return html.escape(str(value), quote=True)
+
+
+def _n(value: int) -> str:
+    return f"{value:,}"

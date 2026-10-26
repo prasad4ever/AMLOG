@@ -18,7 +18,7 @@ Rules-based transaction monitoring creates alerts faster than investigators can 
 - keep later judgments about alert quality out of the scoring inputs
 - leave an audit trail that another person can follow
 
-The repository ingests payment events, replays two versioned monitoring rules over generated history, stores one feature snapshot per alert, writes an experimental anomaly rank, and records a human review on a local page. It does not run live monitoring, and it does not approve a model for production. The working rank orders alerts by how unusual they look. Supervised prediction of which investigations will be productive remains unvalidated, because no eligible reviewed outcomes are available.
+The repository ingests payment events, replays two versioned monitoring rules over generated history, stores one feature snapshot per alert, writes an experimental anomaly rank, and records a human review on a local page. It does not run live monitoring, and it does not approve a model for production. The working rank orders alerts by how unusual they look. Supervised prediction from eligible AMLOG investigator labels remains unvalidated, because no such outcomes are available. A separate research command evaluates published SynthAML report and dismiss outcomes. Those outcomes are not eligible AMLOG labels. A separate benchmark stores constructed case judgments. Those judgments are not eligible reviewed outcomes either.
 
 ## People who will use the platform
 
@@ -74,13 +74,15 @@ In scope now:
 - an experimental Isolation Forest ranking and a robust z-score baseline, with governed model versions and experiment scores
 - a local investigator review page
 - tests for the schema, ingestion, rules, features, ranking, review, and governance constraints
+- a separate investigation-outcome benchmark in its own database. Protocol judgments are linked to alerts from the existing R001 and R002 replay and are not operational training labels
+- an isolated SynthAML research benchmark that ranks published external alerts and does not write to the operational databases
 
 Still ahead:
 
 - a live monitor
 - a queue or event-bus consumer
 - an approved production model
-- a supervised false-positive evaluation, until eligible reviewed outcomes exist
+- a supervised false-positive evaluation on eligible reviewed outcomes. Benchmark protocol judgments and SynthAML report or dismiss values are not those outcomes.
 - a connected payment source
 - any AWS deployment
 
@@ -122,4 +124,4 @@ A publication review can confirm:
 
 ## Non-claims
 
-This project does not assert that an institution has adopted it, that it has been deployed, that it reduces alert volume by any amount, or that it satisfies a regulator, an examiner, or a certification scheme. The anomaly rank is an experimental ordering. It is not a measured reduction in non-productive investigations.
+This project does not assert that an institution has adopted it, that it has been deployed, that it reduces alert volume by any amount, or that it satisfies a regulator, an examiner, or a certification scheme. The anomaly rank is an experimental ordering. It is not a measured reduction in non-productive investigations. Agreement with the benchmark protocol is not that measurement either. SynthAML precision and recall are results on that published synthetic benchmark. They are not measured results for a financial institution.

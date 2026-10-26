@@ -68,6 +68,32 @@ Both model versions are `validated` and not `approved`. The scores are `experime
 
 `python -m amlog.prioritize.supervised_run` is the supervised entry point. It counts the latest eligible `productive_alert` and `non_productive_alert` labels from `investigator_outcome` or `quality_review`. The floor is 25 alerts in each class and two distinct reviewers. Below that floor the command prints `BLOCKED` and does not fit a classifier. It does not manufacture labels and it does not report precision, recall, ROC-AUC, or a business saving. A synthetic fixture label does not count, and a label with `eligible_for_evaluation` false does not count.
 
+## Controlled outcome evaluation
+
+`python -m amlog.evaluate.run` asks whether a comparison of review efficiency can be calculated. It reads counts of alerts, investigation cases, investigation notes, and eligible reviewed outcomes. It does not read `amlog_scenario`. It does not treat a rule trigger, an anomaly rank, a scenario code, or a case disposition as a productive or non-productive outcome.
+
+The stored generated history has no investigation note and no eligible reviewed outcome. The command therefore prints `BLOCKED` and does not compute precision at a review capacity, recall of productive cases, or a count of missed productive cases. It does not insert a label, a score, or a case. The supervised training gate is unchanged.
+
+## Investigation-outcome benchmark
+
+`python -m amlog.benchmark.run` loads design `phase10b-alert-v1` into database `amlog_benchmark`. It ingests account histories, replays the existing R001 and R002 rules, and stores `alert_behavior` version 1 snapshots with the existing feature code.
+
+The Phase 10A payment dossiers are assessed and not loaded. Their payments do not meet the published R001 or R002 thresholds, so they are not rule-generated alerts.
+
+A stored outcome is assumption C1 or C2 applied to a support finding obtained after the alert. The finding says whether a requested invoice, settlement report, or contract was produced and, when produced, whether it matches the alerted payment. The protocol does not read payment novelty, an amount deviation, earlier payments, or the rule code. The recorded actor is `amlog.benchmark.protocol`. That is not a person, and the judgment is not an investigator finding.
+
+Fit and holdout accounts are disjoint. A holdout history does not repeat a fit history's direction and channel sequence or its amounts. Context family is stored for later slices and is not a predictive column. The predictive export uses the snapshot columns other than the rule identity, plus the pre-alert customer type and whether an arrangement was on file. Payments after `triggered_at` stay in the account history and are left out of the snapshot.
+
+The command does not train a model and does not report accuracy. The judgments stay in the benchmark schema. They are not rows in `amlog_label.alert_labels`, and they do not open the operational supervised-training gate. The case count is below that gate's floor. The design and the counts are in `docs/benchmark-design.md`.
+
+## SynthAML research benchmark
+
+`python -m amlog.synthaml.run` reads the published SynthAML alert and transaction files from outside the repository. Each alert is an alert already raised in that extract. The command does not replay R001 or R002 and does not connect to PostgreSQL.
+
+Feature set `synthaml_alert_history` version 1 builds the 56 published history statistics from `Entry`, `Type`, and `Size`. Outcome is stored beside the alert and is joined only when a model is fit and when a comparison is scored. A transaction after the published alert date stops the fit. The logistic baseline scales on all 2020 rows and scores 2021. `python -m amlog.synthaml.select_run` uses the same features. It chooses a candidate from forward quarters inside 2020, with the scale fit on the training side of each fold, and only then scores 2021. The comparison reviews 5, 10, and 20 percent of a period's alerts. Date order is the unprioritized reference.
+
+The resulting precision and recall describe this synthetic benchmark. They are not operational false-positive figures. Report and Dismiss remain investigation outcomes in the source dataset. The design and the measured comparison are in `docs/synthaml-benchmark.md`.
+
 ## What the tests actually do
 
 Two kinds of checks are part of the foundation:
@@ -90,13 +116,15 @@ Provenance means a reviewer can tell where a data item or a model came from.
 | Model version | `training_data_provenance` is mandatory. It must say whether the data was operational, synthetic, historical import, or a mixture, and must identify the dataset enough for a reviewer to find it. "Internal data" is not an acceptable future value. |
 | Score | The score copies the model version and the feature fingerprint. Its feature-set name and version must equal both the snapshot and the feature set required by the model version. `score_use` says `operational` or `experiment`. |
 | Label | `label_source` and `data_origin` are mandatory. Synthetic and historical-import labels also require a rationale. `eligible_for_evaluation` defaults to false. |
+| Benchmark judgment | Design `phase10b-alert-v1` stores the support finding, the linked alert, the feature snapshot, the assumption id, and the protocol actor in database `amlog_benchmark`. The actor is `amlog.benchmark.protocol`. The row is a benchmark judgment, not an operational label. |
+| SynthAML research model | Experiment `phase11-synthaml-v1` records the paper DOI, the feature-set name and version, the training-only scale, the seed, the scikit-learn version, and the file hashes in the local artifact. Experiment `phase11c-synthaml-v1` records the declared candidates, the 2020 fold metrics, the locked candidate, and the 2020 training scale for that candidate. The training data are the published synthetic alerts. Neither artifact is an operational model version. |
 | Audit event | Actor type, actor reference, action, and the affected table are required. |
 
 A future evaluation report must list the data origin of every label it used. A synthetic fixture must not be described as operational history. An operational score must not be described as validated by a synthetic label.
 
 ## Labels are not scoring inputs
 
-Ground truth for training or evaluation is stored only in `amlog_label.alert_labels`.
+Ground truth for operational training or evaluation is stored only in `amlog_label.alert_labels`. Benchmark judgments live in the separate benchmark database and are not those labels.
 
 `amlog.risk_scores` has no label column and no foreign key to the label schema. A case disposition is an operational workflow value on `amlog.investigation_cases`. Copying a disposition into a label, if that is ever done, is a separate governed write. Scoring must not read the label schema, and it must not treat `disposition` as a feature unless a later reviewed design says so explicitly. This foundation does not create features from labels or dispositions.
 
@@ -115,7 +143,8 @@ The authoritative label for an alert is not overwritten in place. Labels are app
 
 ## What this methodology does not support
 
-- a claimed false-positive rate, precision, recall, ROC-AUC, or alert-volume reduction
+- a claimed operational false-positive rate, precision, recall, ROC-AUC, or alert-volume reduction. Precision and recall from the SynthAML research benchmark are results on that published synthetic extract, and they are not these operational figures
+- a statement that agreement with the benchmark protocol is a measure of live investigation efficiency
 - a claimed investigation-time saving
 - a statement that the anomaly rank is a probability of financial crime, a productive investigation, or a false positive
 - a statement that a feature deviation caused the rank or the alert
