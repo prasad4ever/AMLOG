@@ -4,6 +4,16 @@ AMLOG is a client-neutral foundation for prioritizing anti-money laundering aler
 
 The operational ranking is not approved for production. It is not a probability of financial crime, a productive investigation, or a false positive. No operational supervised model has been trained on investigator labels. A separate research benchmark compares declared rankers on the public SynthAML extract and reports precision and recall only for that synthetic benchmark. The logistic regression remains the baseline. A comparison locked on 2020 quarters selected a random forest. No cloud resources have been created. This repository does not claim a client deployment, measured operational performance, or regulatory certification.
 
+## Data Confidentiality & Project Disclaimer
+
+AMLOG is an independent, client-neutral reference implementation demonstrating enterprise Anti-Money Laundering (AML) detection, alert prioritization, and AI/ML model governance capabilities.
+
+In accordance with client confidentiality principles, organizational data protection policies, and proprietary information safeguards, no real client transaction data, confidential business records, or proprietary organizational workflows have been used in this implementation.
+
+The project uses synthetic datasets, including independently generated demonstration workloads and publicly available synthetic research datasets. Customer identities, transaction patterns, business scenarios, and operational workflows are illustrative and do not represent any specific client's actual systems or business operations.
+
+This repository is intended exclusively for architectural demonstration, technical experimentation, and research evaluation. It does not represent a production deployment or an implementation for any identified financial institution. Reported results reflect the documented experimental conditions and should not be interpreted as production performance.
+
 ## Architecture
 
 ```text
